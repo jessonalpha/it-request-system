@@ -1,0 +1,273 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  firstName    String?   
+  lastName     String?   
+  email        String    @unique
+  password     String
+  role         String    @default("User")
+  permissions  String?   @default("{}")
+  phone        String?
+  propertyId   Int?      
+  property     Property? @relation(fields: [propertyId], references: [id])
+  // Project Relations
+  createdProjects Project[]        @relation("CreatedProjects")
+  taggedProjects  Project[]        @relation("TaggedProjects")
+  uploadedQuotes  Quote[]
+  projectComments ProjectComment[]
+  
+  // Explicitly named relations to prevent ambiguity
+  requests       Request[] @relation("CreatedRequests")
+  taggedRequests Request[] @relation("TaggedRequests")
+  
+  comments     Comment[]
+  notifications Notification[]
+  taskLogs       TaskLog[]
+  checklistLogs ChecklistLog[]
+  resources Resource[]  
+}
+
+model Request {
+  id          Int       @id @default(autoincrement())
+  ticketNum   String    @unique
+  title       String
+  description String?
+  category    String
+  priority    String
+  status      String    @default("Open")
+  createdAt   DateTime  @default(now())
+  
+  // The creator of the ticket
+  userId      Int?
+  user        User?     @relation("CreatedRequests", fields: [userId], references: [id])
+  
+  // Users tagged in the ticket
+  taggedUsers User[]    @relation("TaggedRequests")
+  
+  comments    Comment[]
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  message   String
+  fileUrl   String?  // Stores the local path or S3 link
+  fileName  String?  // Stores the original document name
+  requestId Int
+  request   Request  @relation(fields: [requestId], references: [id])
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+model AMC_Contract {
+  id            Int      @id @default(autoincrement())
+  type          String   // e.g., 'AMC', 'Software_License', 'Hardware_Warranty'
+  vendorProduct String   // e.g., 'Cisco ASA Firewall', 'Office 365'
+  cost          Float    
+  startDate     DateTime
+  expiryDate    DateTime // Triggers the CRON job notifications
+  status        String   @default("Active") // 'Active', 'Expiring_Soon', 'Expired', 'Renewed', 'Canceled'
+  fileUrl       String?  // Optional link for signed PDFs
+  updatedAt     DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  attachments   AMCAttachment[]
+  notes         String?
+  propertyId    Int?
+  property      Property?      @relation(fields: [propertyId], references: [id])
+}
+
+// 1. Add the Global Settings Table
+model Tenant_Settings {
+  id           Int     @id @default(1)
+  companyName  String  @default("IT NextGen")
+  logoUrl      String? // URL or S3 link to the uploaded logo
+  primaryColor String  @default("#0f172a")
+}
+
+// 2. Add the Property (Hotel) Table
+model Property {
+  id          Int      @id @default(autoincrement())
+  name        String   
+  code        String   
+  address     String?  
+  landphone   String?  
+  location    String?  
+  // Dedicated Social Media Links
+  facebook    String?
+  instagram   String?
+  youtube     String?
+  linkedin    String?
+  threads     String?
+  website     String?
+  
+  isActive    Boolean  @default(true)
+  users       User[] 
+  checklistTasks ChecklistTask[] 
+  projects       Project[] 
+  checklists    ChecklistTemplate[]
+  amcs        AMC_Contract[]
+}
+
+model Notification {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  title       String
+  description String?
+  dueDate     DateTime?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+}
+
+
+model ChecklistTask {
+  id          Int       @id @default(autoincrement())
+  title       String
+  description String?
+  frequency   String    // "Daily", "Weekly", "Monthly"
+  propertyId  Int?      // If null, it applies to all properties globally
+  property    Property? @relation(fields: [propertyId], references: [id])
+  logs        TaskLog[]
+  createdAt   DateTime  @default(now())
+}
+
+model TaskLog {
+  id          Int       @id @default(autoincrement())
+  taskId      Int
+  task        ChecklistTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId      Int
+  user        User          @relation(fields: [userId], references: [id])
+  status      String        // "Completed" or "Issue"
+  notes       String?
+  date        DateTime      @default(now())
+}
+
+
+model AMCAttachment {
+  id          Int          @id @default(autoincrement())
+  fileUrl     String
+  fileName    String
+  uploadedAt  DateTime     @default(now())
+  amcId       Int
+  amc         AMC_Contract @relation(fields: [amcId], references: [id], onDelete: Cascade)
+}
+
+// ==========================================
+// PROJECT MANAGEMENT MODELS
+// ==========================================
+
+model Project {
+  id          Int       @id @default(autoincrement())
+  projectNum  String    @unique
+  title       String
+  description String?
+  status      String    @default("Scoping") // Scoping, Quoting, Approved, Execution, Completed, Canceled
+  priority    String    @default("Medium")
+  budget      Float?    // Estimated initial budget
+  targetDate  DateTime?
+  completedAt DateTime?
+  
+  userId      Int
+  user        User      @relation("CreatedProjects", fields: [userId], references: [id])
+  propertyId  Int?
+  property    Property? @relation(fields: [propertyId], references: [id])
+  
+  taggedUsers User[]    @relation("TaggedProjects")
+  quotes      Quote[]
+  comments    ProjectComment[]
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Quote {
+  id            Int      @id @default(autoincrement())
+  vendorName    String
+  amount        Float
+  description   String?
+  fileUrl       String?
+  fileName      String?
+  isRevised     Boolean  @default(false)
+  isFinalized   Boolean  @default(false)
+  
+  projectId     Int
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  uploadedById  Int
+  uploadedBy    User     @relation(fields: [uploadedById], references: [id])
+  
+  createdAt     DateTime @default(now())
+}
+
+model ProjectComment {
+  id          Int      @id @default(autoincrement())
+  message     String
+  fileUrl     String?
+  fileName    String?
+  
+  projectId   Int
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  
+  createdAt   DateTime @default(now())
+}
+
+// ==========================================
+// ROUTINE CHECKLIST MODELS
+// ==========================================
+
+model ChecklistTemplate {
+  id          Int       @id @default(autoincrement())
+  title       String
+  description String?
+  frequency   String    // e.g., 'Daily', 'Weekly', 'Monthly'
+  tasks       String    // Stored as a JSON Array string: '["Check Server AC", "Verify Backups"]'
+  
+  propertyId  Int?      // Null = Global Checklist
+  property    Property? @relation(fields: [propertyId], references: [id])
+  
+  logs        ChecklistLog[]
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model ChecklistLog {
+  id          Int       @id @default(autoincrement())
+  
+  templateId  Int
+  template    ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id])
+  
+  date        DateTime  @default(now())
+  status      String    @default("Completed")
+  notes       String?
+  responses   String    // Stored as a JSON Object: '{"Check Server AC": true, "Verify Backups": false}'
+}
+
+// ==========================================
+// RESOURCE HUB MODEL
+// ==========================================
+model Resource {
+  id          Int      @id @default(autoincrement())
+  title       String
+  description String?
+  category    String   // e.g., 'SOPs', 'Brand_Assets', 'Software', 'Forms'
+  fileUrl     String
+  fileName    String
+  
+  uploadedById Int
+  uploadedBy  User     @relation(fields: [uploadedById], references: [id])
+  
+  createdAt   DateTime @default(now())
+}
