@@ -7,10 +7,9 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
 const cron = require('node-cron');
-const bcrypt = require('bcryptjs'); // Only ONE bcrypt import now!
+const bcrypt = require('bcryptjs'); 
 const { GoogleGenAI } = require('@google/genai');
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
 
 // ==========================================
 // DATABASE CONFIGURATION
@@ -33,16 +32,18 @@ app.use(cors({
     credentials: true 
 }));
 
-// File Upload Configuration
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir);
+// File Upload Configuration (Updated to match your prisma/uploads folder)
+const uploadDir = path.join(__dirname, 'prisma/uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
 });
 const upload = multer({ storage });
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// NGINX FIX: Expose the folder explicitly under the /api/ routing block
+app.use('/api/uploads', express.static(path.join(__dirname, 'prisma/uploads')));
 
 // ==========================================
 // JWT PROTECTION MIDDLEWARE 
@@ -187,7 +188,8 @@ app.put('/api/settings', requireAuth, upload.single('logo'), async (req, res) =>
     try {
         const { companyName } = req.body;
         let updateData = { companyName };
-        if (req.file) updateData.logoUrl = `/uploads/${req.file.filename}`;
+        // NGINX FIX: Prepend /api/ to the database save path
+        if (req.file) updateData.logoUrl = `/api/uploads/${req.file.filename}`;
 
         const updatedSettings = await prisma.tenant_Settings.update({
             where: { id: 1 }, data: updateData
@@ -199,14 +201,13 @@ app.put('/api/settings', requireAuth, upload.single('logo'), async (req, res) =>
 });
 
 // ==========================================
-// PROPERTIES ENDPOINTS (Updated for Isolation)
+// PROPERTIES ENDPOINTS
 // ==========================================
 app.get('/api/properties', requireAuth, async (req, res) => {
     try {
         const currentUser = await prisma.user.findUnique({ where: { id: req.user.id } });
         let whereClause = { isActive: true };
 
-        // If not Super Admin, restrict to their primary property + permitted multi-properties
         if (currentUser.role !== 'Super_Admin') {
             let allowedProps = currentUser.propertyId ? [currentUser.propertyId] : [];
             const perms = currentUser.permissions ? JSON.parse(currentUser.permissions) : {};
@@ -303,14 +304,13 @@ app.get('/api/audit', requireAuth, async (req, res) => {
 });
 
 // ==========================================
-// USER MANAGEMENT (Updated for Isolation)
+// USER MANAGEMENT 
 // ==========================================
 app.get('/api/users', requireAuth, async (req, res) => {
     try {
         const currentUser = await prisma.user.findUnique({ where: { id: req.user.id } });
         let whereClause = {};
 
-        // Restrict Admins to viewing only users within their allowed properties
         if (currentUser.role !== 'Super_Admin') {
             let allowedProps = currentUser.propertyId ? [currentUser.propertyId] : [];
             const perms = currentUser.permissions ? JSON.parse(currentUser.permissions) : {};
@@ -336,7 +336,6 @@ app.post('/api/users', requireAuth, async (req, res) => {
     try {
         const { firstName, lastName, email, password, role, phone, propertyId } = req.body; 
         
-        // Block Admins from creating "Global" users
         if (req.user.role === 'Admin' && (!propertyId || propertyId === 'Global')) {
             return res.status(403).json({ error: "Admins must assign users to a property." });
         }
@@ -418,7 +417,7 @@ app.patch('/api/users/:id/reset-password', async (req, res) => {
 // ==========================================
 app.get('/api/requests', requireAuth, async (req, res) => {
     try {
-        const { propertyFilter } = req.query; // e.g., "All" or "2"
+        const { propertyFilter } = req.query; 
         const currentUser = await prisma.user.findUnique({ where: { id: req.user.id } });
         
         let allowedProps = [];
@@ -430,22 +429,17 @@ app.get('/api/requests', requireAuth, async (req, res) => {
 
         let whereClause = {};
 
-        // --- FILTERING LOGIC ---
         if (propertyFilter && propertyFilter !== 'All') {
             const targetPropId = parseInt(propertyFilter);
-            // Security check: Ensure they are Super Admin OR have explicit access to this property
             if (currentUser.role === 'Super_Admin' || allowedProps.includes(targetPropId)) {
-                // Assuming Tickets are linked to properties via the user who created them:
                 whereClause.user = { propertyId: targetPropId }; 
             } else {
                 return res.status(403).json({ error: "Access denied to this property context." });
             }
         } else if (currentUser.role !== 'Super_Admin') {
-            // If an Admin somehow requests "All", force-filter to only their allowed properties
             whereClause.user = { propertyId: { in: allowedProps } };
         }
 
-        // --- STANDARD USER ISOLATION ---
         if (currentUser.role === 'User') {
             whereClause = {
                 ...whereClause,
@@ -581,7 +575,8 @@ app.delete('/api/requests/:id', requireAuth, async (req, res) => {
 app.post('/api/requests/:id/comments', requireAuth, upload.single('document'), async (req, res) => {
     try {
         const { message } = req.body;
-        const fileUrl = req.file ? `/uploads/${req.file.filename}` : null;
+        // NGINX FIX: Prepend /api/ to the database save path
+        const fileUrl = req.file ? `/api/uploads/${req.file.filename}` : null;
         const fileName = req.file ? req.file.originalname : null;
 
         const newComment = await prisma.comment.create({
@@ -746,15 +741,16 @@ app.patch('/api/projects/:id/status', requireAuth, async (req, res) => {
 // Helper function to check quotation permissions
 const checkQuotePermission = async (userId, permissionKey) => {
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    if (user.role === 'Admin' || user.role === 'Super_Admin') return true; // Admins always have access
+    if (user.role === 'Admin' || user.role === 'Super_Admin') return true; 
     const perms = user.permissions ? JSON.parse(user.permissions) : {};
-    return !!perms[permissionKey]; // Return true if the specific permission is toggled on
+    return !!perms[permissionKey]; 
 };
 
 // 1. ADD QUOTE
 app.post('/api/projects/:id/quotes', requireAuth, upload.single('document'), async (req, res) => {
     try {
-        const hasPermission = await checkQuotePermission(req.user.userId, 'add_quotes');
+        // BUG FIX: Changed req.user.userId to req.user.id to prevent a backend crash
+        const hasPermission = await checkQuotePermission(req.user.id, 'add_quotes');
         if (!hasPermission) return res.status(403).json({ error: "You do not have permission to add quotes." });
 
         const projectId = parseInt(req.params.id);
@@ -766,9 +762,10 @@ app.post('/api/projects/:id/quotes', requireAuth, upload.single('document'), asy
                 amount: parseFloat(amount),
                 description,
                 isRevised: isRevised === 'true',
-                fileUrl: req.file ? `/uploads/${req.file.filename}` : null,
+                // NGINX FIX: Prepend /api/ to the database save path
+                fileUrl: req.file ? `/api/uploads/${req.file.filename}` : null,
                 projectId,
-                uploadedById: req.user.userId
+                uploadedById: req.user.id
             },
             include: { uploadedBy: true }
         });
@@ -782,7 +779,8 @@ app.post('/api/projects/:id/quotes', requireAuth, upload.single('document'), asy
 // 2. EDIT QUOTE
 app.put('/api/projects/:id/quotes/:quoteId', requireAuth, upload.single('document'), async (req, res) => {
     try {
-        const hasPermission = await checkQuotePermission(req.user.userId, 'edit_quotes');
+        // BUG FIX: Changed req.user.userId to req.user.id to prevent a backend crash
+        const hasPermission = await checkQuotePermission(req.user.id, 'edit_quotes');
         if (!hasPermission) return res.status(403).json({ error: "You do not have permission to edit quotes." });
 
         const quoteId = parseInt(req.params.quoteId);
@@ -796,7 +794,8 @@ app.put('/api/projects/:id/quotes/:quoteId', requireAuth, upload.single('documen
         };
 
         if (req.file) {
-            updateData.fileUrl = `/uploads/${req.file.filename}`;
+            // NGINX FIX: Prepend /api/ to the database save path
+            updateData.fileUrl = `/api/uploads/${req.file.filename}`;
         }
         
         const updatedQuote = await prisma.quote.update({
@@ -814,7 +813,8 @@ app.put('/api/projects/:id/quotes/:quoteId', requireAuth, upload.single('documen
 // 3. DELETE QUOTE
 app.delete('/api/projects/:id/quotes/:quoteId', requireAuth, async (req, res) => {
     try {
-        const hasPermission = await checkQuotePermission(req.user.userId, 'delete_quotes');
+        // BUG FIX: Changed req.user.userId to req.user.id to prevent a backend crash
+        const hasPermission = await checkQuotePermission(req.user.id, 'delete_quotes');
         if (!hasPermission) return res.status(403).json({ error: "You do not have permission to delete quotes." });
 
         const quoteId = parseInt(req.params.quoteId);
@@ -855,7 +855,8 @@ app.patch('/api/projects/:id/quotes/:quoteId/finalize', requireAuth, async (req,
 app.post('/api/projects/:id/comments', requireAuth, upload.single('document'), async (req, res) => {
     try {
         const { message } = req.body;
-        const fileUrl = req.file ? `/uploads/${req.file.filename}` : null;
+        // NGINX FIX: Prepend /api/ to the database save path
+        const fileUrl = req.file ? `/api/uploads/${req.file.filename}` : null;
         const fileName = req.file ? req.file.originalname : null;
 
         const newComment = await prisma.projectComment.create({
@@ -874,7 +875,7 @@ app.post('/api/projects/:id/comments', requireAuth, upload.single('document'), a
 });
 
 // ==========================================
-// AI QUOTE COMPARISON ENGINE (LOOP FIX)
+// AI QUOTE COMPARISON ENGINE 
 // ==========================================
 app.post('/api/projects/:id/quotes/compare', requireAuth, async (req, res) => {
     try {
@@ -897,8 +898,6 @@ app.post('/api/projects/:id/quotes/compare', requireAuth, async (req, res) => {
             depthInstruction = "Provide an exhaustive audit: full line-item breakdown, technical compliance, exclusions, hidden costs, and risk assessment.";
         }
 
-        // We inject the schema into the text prompt instead of using the API's strict responseSchema, 
-        // which prevents the AI's internal token generator from freezing in a loop.
         const promptParts = [
             { text: `You are an expert IT Procurement and Cost-Audit Consultant. Analyze the attached vendor quotation PDFs.
 
@@ -907,7 +906,8 @@ Depth Guidance: ${depthInstruction}
 ${customPrompt ? `User Specific Instructions: "${customPrompt}"` : ""}
 
 CRITICAL INSTRUCTIONS TO PREVENT REPETITION:
-1. You MUST return ONLY a valid JSON object. Do NOT wrap it in markdown blocks like \`\`\`json.
+1. You MUST return ONLY a valid JSON object. Do NOT wrap it in markdown blocks like 
+\`\`\`json.
 2. Do NOT write paragraphs. Keep all text in "observations", "keyPros", and "keyCons" strictly to short bullet points (max 15 words per point).
 3. If a PDF is unreadable, output "Information unavailable". Do NOT repeat yourself.
 
@@ -950,7 +950,8 @@ Attached PDFs:` }
             promptParts.push({ text: `\n\n=== VENDOR: ${quote.vendorName} ===\nAmount: ₹${quote.amount}\nNotes: ${quote.description || 'None'}` });
             
             if (quote.fileUrl && quote.fileUrl.toLowerCase().endsWith('.pdf')) {
-                const localPath = quote.fileUrl.startsWith('/') ? quote.fileUrl.slice(1) : quote.fileUrl;
+                // NGINX FIX: Strip out the /api/ prefix before asking Node to read the local filesystem
+                const localPath = quote.fileUrl.replace('/api/', ''); 
                 const filePath = path.join(__dirname, localPath);
                 
                 if (fs.existsSync(filePath)) {
@@ -971,7 +972,6 @@ Attached PDFs:` }
             contents: promptParts,
             config: {
                 responseMimeType: "application/json",
-                // Temperature increased to 0.7 to completely eliminate degenerate loop likelihood
                 temperature: 0.7 
             }
         });
@@ -1043,7 +1043,6 @@ app.get('/api/amcs', requireAuth, async (req, res) => {
 app.post('/api/amcs', requireAuth, async (req, res) => {
     if (req.user.role !== 'Admin' && req.user.role !== 'Super_Admin') return res.status(403).json({ error: "Unauthorized" });
     try {
-        // Extract the new fields (propertyId, notes) sent by the frontend
         const { type, vendorProduct, cost, startDate, expiryDate, propertyId, notes } = req.body;
         
         const expDate = new Date(expiryDate);
@@ -1058,7 +1057,7 @@ app.post('/api/amcs', requireAuth, async (req, res) => {
                 type, 
                 vendorProduct, 
                 cost: parseFloat(cost) || 0, 
-                startDate: startDate ? new Date(startDate) : new Date(), // Graceful fallback
+                startDate: startDate ? new Date(startDate) : new Date(), 
                 expiryDate: expDate,
                 status: initialStatus,
                 notes: notes || "", 
@@ -1089,7 +1088,6 @@ app.get('/api/amcs/:id', requireAuth, async (req, res) => {
 app.put('/api/amcs/:id', requireAuth, async (req, res) => {
     if (req.user.role !== 'Admin' && req.user.role !== 'Super_Admin') return res.status(403).json({ error: "Unauthorized" });
     try {
-        // Extract the new fields (propertyId, notes)
         const { type, vendorProduct, cost, startDate, expiryDate, propertyId, notes } = req.body;
         
         const expDate = new Date(expiryDate);
@@ -1111,7 +1109,6 @@ app.put('/api/amcs/:id', requireAuth, async (req, res) => {
                 notes: notes || "",
                 propertyId: propertyId ? parseInt(propertyId) : null
             }
-            // Note: If you don't have attachments working yet, you can leave include: { attachments: true } out.
         });
         res.json(updatedContract);
     } catch (error) {
@@ -1137,7 +1134,8 @@ app.post('/api/amcs/:id/attachments', requireAuth, upload.single('document'), as
         
         const newAttachment = await prisma.aMCAttachment.create({
             data: {
-                fileUrl: `/uploads/${req.file.filename}`,
+                // NGINX FIX: Prepend /api/ to the database save path
+                fileUrl: `/api/uploads/${req.file.filename}`,
                 fileName: req.file.originalname,
                 amcId: parseInt(req.params.id)
             }
@@ -1279,7 +1277,7 @@ app.get('/api/checklists/logs', requireAuth, async (req, res) => {
 // ==========================================
 // EMAIL SETTINGS (IMAP / WEBHOOK) STUB
 // ==========================================
-let mockEmailConfigs = []; // Temporary in-memory array until Prisma schema is updated
+let mockEmailConfigs = []; 
 
 app.get('/api/email-settings', requireAuth, (req, res) => {
     if (req.user.role !== 'Super_Admin') return res.status(403).json({ error: "Unauthorized" });
@@ -1368,7 +1366,8 @@ app.post('/api/resources', requireAuth, upload.single('file'), async (req, res) 
         const newResource = await prisma.resource.create({
             data: {
                 title, description, category,
-                fileUrl: `/uploads/${req.file.filename}`,
+                // NGINX FIX: Prepend /api/ to the database save path
+                fileUrl: `/api/uploads/${req.file.filename}`,
                 fileName: req.file.originalname,
                 uploadedById: req.user.id
             },
@@ -1386,13 +1385,11 @@ app.delete('/api/resources/:id', requireAuth, async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Delete failed" }); }
 });
 
-// Add this to backend/index.js
 app.get('/api/my-properties', requireAuth, async (req, res) => {
     try {
         const currentUser = await prisma.user.findUnique({ where: { id: req.user.id } });
         let whereClause = { isActive: true };
 
-        // If not Super Admin, compile their Primary Property + Multi-Property list
         if (currentUser.role !== 'Super_Admin') {
             let allowedProps = currentUser.propertyId ? [currentUser.propertyId] : [];
             const perms = currentUser.permissions ? JSON.parse(currentUser.permissions) : {};
@@ -1405,7 +1402,7 @@ app.get('/api/my-properties', requireAuth, async (req, res) => {
 
         const properties = await prisma.property.findMany({ 
             where: whereClause,
-            select: { id: true, name: true, code: true } // Keep payload light for the header
+            select: { id: true, name: true, code: true } 
         });
         
         res.json({ role: currentUser.role, properties });
@@ -1419,7 +1416,8 @@ app.get('/api/my-properties', requireAuth, async (req, res) => {
 // ==========================================
 app.get('/api/users/me/permissions', requireAuth, async (req, res) => {
     try {
-        const user = await prisma.user.findUnique({ where: { id: req.user.userId } });
+        // BUG FIX: Changed req.user.userId to req.user.id
+        const user = await prisma.user.findUnique({ where: { id: req.user.id } });
         if (!user) return res.status(404).json({ error: "User not found" });
         const perms = user.permissions ? JSON.parse(user.permissions) : {};
         res.json({ permissions: perms });
