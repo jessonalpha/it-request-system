@@ -42,6 +42,10 @@ export default function Tickets() {
   const [category, setCategory] = useState("")
   const [priority, setPriority] = useState("")
   const [taggedUserIds, setTaggedUserIds] = useState<string[]>([]) 
+  const [tagResetKey, setTagResetKey] = useState(0)
+
+  // --- Success Popup State ---
+  const [createdTicket, setCreatedTicket] = useState<{ id: number; ticketNum: string } | null>(null)
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -61,7 +65,6 @@ export default function Tickets() {
 
     const headers = { 'Authorization': `Bearer ${token}` }
 
-    // Fetch My Permissions Securely
     fetch('/api/users/me/permissions', { headers })
       .then(res => res.ok ? res.json() : { permissions: {} })
       .then(data => setMyPermissions(data.permissions || {}))
@@ -70,12 +73,10 @@ export default function Tickets() {
     fetch('/api/settings', { headers }).then(res => res.json()).then(data => setAppSettings(data)).catch(() => {})
     fetch(`/api/users?propertyFilter=${activeProperty}`, { headers }).then(res => res.ok && res.json()).then(data => data && setUsers(data)).catch(() => {})
 
-    // Fetch Allowed Properties for Context Switcher
     fetch('/api/my-properties', { headers })
       .then(res => res.ok ? res.json() : { properties: [], role: 'User' })
       .then(data => {
         setAllowedProperties(data.properties || [])
-        // Force non-Super Admins out of 'All' view if they happen to have it stored
         if (data.role !== 'Super_Admin' && activeProperty === 'All') {
           const defaultProp = data.properties && data.properties.length > 0 ? data.properties[0].id.toString() : ""
           setActiveProperty(defaultProp)
@@ -179,8 +180,16 @@ export default function Tickets() {
         setIsDialogOpen(false)
         setTitle(""); setDescription(""); setCategory(""); setPriority(""); setTaggedUserIds([]) 
         setActiveTab("All")
+        
+        // Trigger the success popup with the new ticket details
+        setCreatedTicket({ id: newTicket.id, ticketNum: newTicket.ticketNum })
+      } else {
+        const errorData = await response.json().catch(() => ({}))
+        alert(`Failed to create ticket: ${errorData.message || errorData.error || response.statusText}`)
       }
-    } catch (error) { alert("Network Error") }
+    } catch (error) { 
+      alert("Network Error: Could not connect to the server.") 
+    }
   }
 
   const handleStatusChange = async (ticketId: number, newStatus: string) => {
@@ -199,7 +208,6 @@ export default function Tickets() {
     } catch (error) { console.error("Failed to update status") }
   }
 
-  // Modern Metrics Grid Arrays
   const totalReqs = requests.length
   const openReqs = requests.filter(r => r.status === "Open").length
   const progressReqs = requests.filter(r => r.status === "In Progress").length
@@ -387,7 +395,6 @@ export default function Tickets() {
                 <p className="text-sm text-slate-500 mt-1">Search, organize, and manage active IT requests.</p>
               </div>
               
-              {/* Mobile "New Ticket" action button */}
               {canCreateTickets && (
                 <Button onClick={() => setIsDialogOpen(true)} className="md:hidden bg-indigo-600 text-white h-10 px-4 rounded-xl shadow-md">
                   New Ticket
@@ -524,19 +531,19 @@ export default function Tickets() {
           <form onSubmit={handleCreateTicket} className="space-y-4">
             <div className="space-y-2">
               <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Title *</Label>
-              <Input required value={title} onChange={(e) => setTitle(e.target.value)} className="h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500" placeholder="Brief summary..." />
+              <Input required value={title} onChange={(e) => setTitle(e.target.value)} className="w-full max-w-none h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500" placeholder="Brief summary..." />
             </div>
             
             <div className="space-y-2">
               <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Description *</Label>
-              <Textarea required placeholder="Please provide details about the issue..." value={description} onChange={(e) => setDescription(e.target.value)} className="h-24 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500 resize-none" />
+              <Textarea required placeholder="Please provide details about the issue..." value={description} onChange={(e) => setDescription(e.target.value)} className="w-full max-w-none h-24 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500 resize-none" />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Category *</Label>
-                <Select required value={category} onValueChange={setCategory}>
-                  <SelectTrigger className="h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"><SelectValue placeholder="Select..." /></SelectTrigger>
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger className="w-full max-w-none h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"><SelectValue placeholder="Select..." /></SelectTrigger>
                   <SelectContent className="bg-white rounded-xl shadow-xl border-slate-100">
                     <SelectItem value="Hardware">Hardware</SelectItem>
                     <SelectItem value="Software">Software</SelectItem>
@@ -548,8 +555,8 @@ export default function Tickets() {
               
               <div className="space-y-2">
                 <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Priority *</Label>
-                <Select required value={priority} onValueChange={setPriority}>
-                  <SelectTrigger className="h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"><SelectValue placeholder="Select..." /></SelectTrigger>
+                <Select value={priority} onValueChange={setPriority}>
+                  <SelectTrigger className="w-full max-w-none h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"><SelectValue placeholder="Select..." /></SelectTrigger>
                   <SelectContent className="bg-white rounded-xl shadow-xl border-slate-100">
                     <SelectItem value="Low">Low</SelectItem>
                     <SelectItem value="Medium">Medium</SelectItem>
@@ -561,10 +568,18 @@ export default function Tickets() {
 
             <div className="space-y-2 pt-2 border-t border-slate-100">
               <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Tag Users (Optional)</Label>
-              <Select onValueChange={(val) => {
-                if (!taggedUserIds.includes(val)) setTaggedUserIds([...taggedUserIds, val])
-              }}>
-                <SelectTrigger className="h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"><SelectValue placeholder="Select staff to tag..." /></SelectTrigger>
+              <Select 
+                key={tagResetKey}
+                onValueChange={(val) => {
+                  if (val && !taggedUserIds.includes(val)) {
+                    setTaggedUserIds([...taggedUserIds, val])
+                    setTagResetKey(prev => prev + 1)
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full max-w-none h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500 text-slate-500">
+                  <span className="font-normal text-sm">Select staff to tag...</span>
+                </SelectTrigger>
                 <SelectContent className="bg-white rounded-xl shadow-xl border-slate-100">
                   {users.map(u => (
                     <SelectItem key={u.id} value={u.id.toString()}>
@@ -595,6 +610,57 @@ export default function Tickets() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* TICKET CREATED SUCCESS POPUP */}
+      <Dialog open={!!createdTicket} onOpenChange={(open) => !open && setCreatedTicket(null)}>
+        <DialogContent className="w-[90vw] max-w-[400px] bg-white p-6 rounded-2xl border-none shadow-2xl text-center">
+          <div className="flex flex-col items-center justify-center space-y-4 py-2">
+            <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center shadow-sm border border-emerald-100">
+              <CheckCircle2 className="w-8 h-8" strokeWidth={2.5} />
+            </div>
+            
+            <DialogHeader>
+              <DialogTitle className="text-xl font-bold text-slate-900 text-center">
+                Ticket Created Successfully!
+              </DialogTitle>
+            </DialogHeader>
+            
+            <p className="text-sm text-slate-500">
+              Your support request has been registered. Please save your ticket reference number below:
+            </p>
+
+            <div className="bg-slate-50 border border-slate-200 rounded-xl py-3 px-6 w-full">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                Ticket Number
+              </span>
+              <span className="text-2xl font-extrabold text-indigo-600 tracking-tight">
+                {createdTicket?.ticketNum}
+              </span>
+            </div>
+
+            <div className="flex gap-3 w-full pt-2">
+              <Button 
+                variant="outline" 
+                onClick={() => setCreatedTicket(null)} 
+                className="flex-1 h-11 rounded-xl border-slate-200 text-slate-700 font-semibold"
+              >
+                Close
+              </Button>
+              <Button 
+                onClick={() => {
+                  const id = createdTicket?.id
+                  setCreatedTicket(null)
+                  if (id) navigate(`/tickets/${id}`)
+                }} 
+                className="flex-1 h-11 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-md shadow-indigo-600/20"
+              >
+                View Ticket
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }

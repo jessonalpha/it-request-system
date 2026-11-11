@@ -481,6 +481,7 @@ app.get('/api/requests/:id', requireAuth, async (req, res) => {
     }
 });
 
+// Create New Ticket with Sequential REQ1001 Numbering
 app.post('/api/requests', requireAuth, async (req, res) => {
     try {
         const { title, description, category, priority, taggedUserIds } = req.body;
@@ -489,17 +490,38 @@ app.post('/api/requests', requireAuth, async (req, res) => {
             ? { connect: taggedUserIds.map(id => ({ id: parseInt(id) })) }
             : undefined;
 
-        const ticketNum = `TKT-${Math.floor(1000 + Math.random() * 9000)}`;
+        // --- SEQUENTIAL TICKET NUMBER GENERATOR (Starts at REQ1001) ---
+        const existingTickets = await prisma.request.findMany({
+            where: { ticketNum: { startsWith: 'REQ' } },
+            select: { ticketNum: true }
+        });
+
+        let maxNum = 1000;
+        for (const t of existingTickets) {
+            // Matches "REQ" followed strictly by digits (ignores old random "REQ-XXXX" tickets)
+            const match = t.ticketNum.match(/^REQ(\d+)$/);
+            if (match) {
+                const num = parseInt(match[1], 10);
+                if (num > maxNum) maxNum = num;
+            }
+        }
+        const ticketNum = `REQ${maxNum + 1}`;
 
         const newTicket = await prisma.request.create({
             data: {
-                ticketNum, title, description, category, priority,
+                ticketNum,
+                title,
+                description,
+                category,
+                priority,
+                status: 'Open',
                 userId: req.user.id,     
                 taggedUsers: connectTags 
             },
             include: { user: true, taggedUsers: true }
         });
 
+        // Trigger Notification for tagged staff
         if (taggedUserIds && taggedUserIds.length > 0) {
             const notifications = taggedUserIds.map(id => ({
                 userId: parseInt(id),
@@ -511,6 +533,7 @@ app.post('/api/requests', requireAuth, async (req, res) => {
 
         res.status(201).json(newTicket);
     } catch (error) {
+        console.error("Failed to create ticket:", error);
         res.status(500).json({ error: "Failed to create ticket" });
     }
 });

@@ -16,7 +16,7 @@ export default function Projects() {
   
   const [projects, setProjects] = useState<any[]>([])
   const [users, setUsers] = useState<any[]>([]) 
-  const [properties, setProperties] = useState<any[]>([]) // Added missing state
+  const [properties, setProperties] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<string>((location.state as any)?.filter || "All")
   const [searchQuery, setSearchQuery] = useState("")
@@ -42,6 +42,9 @@ export default function Projects() {
   const [targetDate, setTargetDate] = useState("")
   const [propertyId, setPropertyId] = useState("Global")
   const [taggedUserIds, setTaggedUserIds] = useState<string[]>([]) 
+  
+  // This state resets the Shadcn Select so it can be used for multi-tagging
+  const [tagResetKey, setTagResetKey] = useState(0)
 
   const [myPermissions, setMyPermissions] = useState<Record<string, any>>({})
 
@@ -69,14 +72,9 @@ export default function Projects() {
       .catch(() => setMyPermissions({}))
 
     fetch('http://localhost:5000/api/settings', { headers }).then(res => res.json()).then((data: any) => setAppSettings(data)).catch(() => {})
-    
-    // Fetch Properties
     fetch('http://localhost:5000/api/properties', { headers }).then(res => res.ok && res.json()).then((data: any) => data && setProperties(data)).catch(() => {})
-
-    // Fetch Context-Filtered Users
     fetch(`http://localhost:5000/api/users?propertyFilter=${activeProperty}`, { headers }).then(res => res.ok && res.json()).then((data: any) => data && setUsers(data)).catch(() => {})
 
-    // Fetch Allowed Properties for Context Switcher
     fetch('http://localhost:5000/api/my-properties', { headers })
       .then(res => res.ok ? res.json() : { properties: [], role: 'User' })
       .then((data: any) => {
@@ -168,7 +166,6 @@ export default function Projects() {
     setBudget("")
     setTargetDate("")
     setTaggedUserIds([])
-    // Default the assignment to the current context filter
     setPropertyId(userRole === 'Super_Admin' && activeProperty === 'All' ? 'Global' : (activeProperty !== 'All' ? activeProperty : (allowedProperties.length > 0 ? allowedProperties[0].id.toString() : 'Global')))
     setIsDialogOpen(true)
   }
@@ -202,7 +199,6 @@ export default function Projects() {
     } catch (error) { alert("Network Error") }
   }
 
-  // Modern Metrics Grid Arrays (Explicitly typed as any)
   const metrics = [
     { title: "All Projects", value: projects.length, icon: Folder, color: "text-slate-600", bg: "bg-slate-100", filter: "All" },
     { title: "Scoping", value: projects.filter((p: any) => p.status === "Scoping").length, icon: SearchCode, color: "text-amber-600", bg: "bg-amber-50", filter: "Scoping" },
@@ -331,7 +327,7 @@ export default function Projects() {
             <div className="md:hidden mb-6">
               <Label className="text-xs text-slate-400 mb-2 block">Property Filter</Label>
               <Select value={activeProperty} onValueChange={handleContextSwitch}>
-                <SelectTrigger className="w-full h-10 bg-slate-800 border-slate-700 text-white rounded-lg">
+                <SelectTrigger className="w-full max-w-none h-10 bg-slate-800 border-slate-700 text-white rounded-lg">
                   <SelectValue placeholder="Select Property Context" />
                 </SelectTrigger>
                 <SelectContent className="bg-white rounded-xl shadow-xl border-slate-100">
@@ -423,7 +419,7 @@ export default function Projects() {
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <Input 
                     placeholder="Search projects by ID or title..." 
-                    className="pl-10 h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500 w-full"
+                    className="pl-10 h-10 w-full max-w-none rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                   />
@@ -509,22 +505,24 @@ export default function Projects() {
           <DialogHeader className="mb-2">
             <DialogTitle className="text-xl font-bold text-slate-900">Draft New Project</DialogTitle>
           </DialogHeader>
+          
           <form onSubmit={handleCreateProject} className="space-y-4 max-h-[75vh] overflow-y-auto pr-2">
+            
             <div className="space-y-2">
               <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Title *</Label>
-              <Input required value={title} onChange={(e) => setTitle(e.target.value)} className="h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500" placeholder="e.g. WiFi Upgrade" />
+              <Input required value={title} onChange={(e) => setTitle(e.target.value)} className="w-full max-w-none h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500" placeholder="e.g. WiFi Upgrade" />
             </div>
             
             <div className="space-y-2">
               <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Scope / Details *</Label>
-              <Textarea required placeholder="Provide the initial project scope..." value={description} onChange={(e) => setDescription(e.target.value)} className="h-24 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500 resize-none" />
+              <Textarea required placeholder="Provide the initial project scope..." value={description} onChange={(e) => setDescription(e.target.value)} className="w-full max-w-none h-24 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500 resize-none" />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Property</Label>
                 <Select value={propertyId} onValueChange={setPropertyId}>
-                  <SelectTrigger className="h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"><SelectValue/></SelectTrigger>
+                  <SelectTrigger className="w-full max-w-none h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"><SelectValue/></SelectTrigger>
                   <SelectContent className="bg-white rounded-xl shadow-xl border-slate-100">
                     <SelectItem value="Global">Global / Corporate</SelectItem>
                     {properties.map((p: any) => <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>)}
@@ -534,7 +532,7 @@ export default function Projects() {
               <div className="space-y-2">
                 <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Priority *</Label>
                 <Select required value={priority} onValueChange={setPriority}>
-                  <SelectTrigger className="h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"><SelectValue placeholder="Select..."/></SelectTrigger>
+                  <SelectTrigger className="w-full max-w-none h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"><SelectValue placeholder="Select..."/></SelectTrigger>
                   <SelectContent className="bg-white rounded-xl shadow-xl border-slate-100">
                     <SelectItem value="Low">Low</SelectItem>
                     <SelectItem value="Medium">Medium</SelectItem>
@@ -547,20 +545,28 @@ export default function Projects() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Est. Budget (₹)</Label>
-                <Input type="number" placeholder="Optional" value={budget} onChange={(e) => setBudget(e.target.value)} className="h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"/>
+                <Input type="number" placeholder="Optional" value={budget} onChange={(e) => setBudget(e.target.value)} className="w-full max-w-none h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"/>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Target Date</Label>
-                <Input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"/>
+                <Input type="date" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} className="w-full max-w-none h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"/>
               </div>
             </div>
 
             <div className="space-y-2 pt-2 border-t border-slate-100">
               <Label className="text-xs font-bold text-slate-700 uppercase tracking-wider">Tag Stakeholders (Optional)</Label>
-              <Select onValueChange={(val) => {
-                if (!taggedUserIds.includes(val)) setTaggedUserIds([...taggedUserIds, val])
-              }}>
-                <SelectTrigger className="h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500"><SelectValue placeholder="Add stakeholders..." /></SelectTrigger>
+              <Select 
+                key={tagResetKey} // This forces the dropdown to physically reset when a user is picked
+                onValueChange={(val) => {
+                  if (val && !taggedUserIds.includes(val)) {
+                    setTaggedUserIds([...taggedUserIds, val])
+                    setTagResetKey(prev => prev + 1) // Clear selection immediately
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full max-w-none h-10 rounded-xl bg-slate-50 border-slate-200 focus-visible:ring-indigo-500 text-slate-500">
+                  <span className="font-normal text-sm">Select staff to tag...</span>
+                </SelectTrigger>
                 <SelectContent className="bg-white rounded-xl shadow-xl border-slate-100">
                   {users.map((u: any) => (
                     <SelectItem key={u.id} value={u.id.toString()}>
@@ -588,6 +594,7 @@ export default function Projects() {
             <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white mt-4 h-11 rounded-xl shadow-lg shadow-indigo-600/20 font-bold tracking-wide">
               Initialize Project
             </Button>
+            
           </form>
         </DialogContent>
       </Dialog>
