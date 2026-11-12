@@ -1368,44 +1368,143 @@ cron.schedule('0 8 * * *', async () => {
 });
 
 // ==========================================
-// RESOURCE HUB ENDPOINTS
+// RESOURCE HUB ENDPOINTS (With Property & Global Scope)
 // ==========================================
 app.get('/api/resources', requireAuth, async (req, res) => {
     try {
+        const { propertyFilter } = req.query;
+        const currentUser = await prisma.user.findUnique({ where: { id: req.user.id } });
+
+        let allowedProps = [];
+        if (currentUser.role !== 'Super_Admin') {
+            allowedProps = currentUser.propertyId ? [currentUser.propertyId] : [];
+            const perms = currentUser.permissions ? JSON.parse(currentUser.permissions) : {};
+            if (perms.multi_property && Array.isArray(perms.multi_property)) {
+                allowedProps = [...new Set([...allowedProps, ...perms.multi_property.map(Number)])];
+            }
+        }
+
+        let whereClause = {};
+
+        if (propertyFilter && propertyFilter !== 'All') {
+            const targetPropId = parseInt(propertyFilter);
+            if (currentUser.role === 'Super_Admin' || allowedProps.includes(targetPropId)) {
+                // Show Global resources (null) PLUS resources for the selected property
+                whereClause = {
+                    OR: [
+                        { propertyId: null },
+                        { propertyId: targetPropId }
+                    ]
+                };
+            } else {
+                return res.status(403).json({ error: "Access denied to this property context." });
+            }
+        } else if (currentUser.role !== 'Super_Admin') {
+            // Non-Super Admins in 'All' view see Global resources + their permitted hotels
+            whereClause = {
+                OR: [
+                    { propertyId: null },
+                    { propertyId: { in: allowedProps } }
+                ]
+            };
+        }
+
         const resources = await prisma.resource.findMany({
-            include: { uploadedBy: { select: { firstName: true, lastName: true, email: true } } },
+            where: whereClause,
+            include: { 
+                uploadedBy: { select: { firstName: true, lastName: true, email: true } },
+                property: true 
+            },
             orderBy: { createdAt: 'desc' }
         });
         res.json(resources);
-    } catch (error) { res.status(500).json({ error: "Failed to fetch resources" }); }
+    } catch (error) {
+        console.error("Failed to fetch resources:", error);
+        res.status(500).json({ error: "Failed to fetch resources" });
+    }
 });
 
 app.post('/api/resources', requireAuth, upload.single('file'), async (req, res) => {
-    if (req.user.role !== 'Admin' && req.user.role !== 'Super_Admin') return res.status(403).json({ error: "Unauthorized" });
+    if (req.user.role !== 'Admin' && req.user.role !== 'Super_Admin') {
+        return res.status(403).json({ error: "Unauthorized" });
+    }
     try {
         if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-        const { title, description, category } = req.body;
-        
+        const { title, description, category, propertyId } = req.body;
+
+        const parsedPropertyId = propertyId && propertyId !== 'Global' ? parseInt(propertyId) : null;
+
         const newResource = await prisma.resource.create({
             data: {
-                title, description, category,
-                // NGINX FIX: Prepend /api/ to the database save path
-                fileUrl: `/api/uploads/${req.file.filename}`,
+                title,
+                description,
+                category,
+                fileUrl: `/uploads/${req.file.filename}`,
                 fileName: req.file.originalname,
-                uploadedById: req.user.id
+                uploadedById: req.user.id,
+                propertyId: parsedPropertyId
             },
-            include: { uploadedBy: { select: { firstName: true, lastName: true, email: true } } }
+            include: { 
+                uploadedBy: { select: { firstName: true, lastName: true, email: true } },
+                property: true 
+            }
         });
         res.status(201).json(newResource);
-    } catch (error) { res.status(500).json({ error: "Upload failed" }); }
+    } catch (error) {
+        console.error("Resource upload failed:", error);
+        res.status(500).json({ error: "Upload failed" });
+    }
+});
+
+app.put('/api/resources/:id', requireAuth, upload.single('file'), async (req, res) => {
+    if (req.user.role !== 'Admin' && req.user.role !== 'Super_Admin') {
+        return res.status(403).json({ error: "Unauthorized" });
+    }
+    try {
+        const resourceId = parseInt(req.params.id);
+        const { title, description, category, propertyId } = req.body;
+
+        const parsedPropertyId = propertyId && propertyId !== 'Global' ? parseInt(propertyId) : null;
+
+        const updateData = {
+            title,
+            description: description || null,
+            category,
+            propertyId: parsedPropertyId
+        };
+
+        // If the Admin selected a new replacement file, update the file path and name
+        if (req.file) {
+            updateData.fileUrl = `/uploads/${req.file.filename}`;
+            updateData.fileName = req.file.originalname;
+        }
+
+        const updatedResource = await prisma.resource.update({
+            where: { id: resourceId },
+            data: updateData,
+            include: {
+                uploadedBy: { select: { firstName: true, lastName: true, email: true } },
+                property: true
+            }
+        });
+
+        res.json(updatedResource);
+    } catch (error) {
+        console.error("Failed to update resource:", error);
+        res.status(500).json({ error: "Failed to update resource" });
+    }
 });
 
 app.delete('/api/resources/:id', requireAuth, async (req, res) => {
-    if (req.user.role !== 'Admin' && req.user.role !== 'Super_Admin') return res.status(403).json({ error: "Unauthorized" });
+    if (req.user.role !== 'Admin' && req.user.role !== 'Super_Admin') {
+        return res.status(403).json({ error: "Unauthorized" });
+    }
     try {
         await prisma.resource.delete({ where: { id: parseInt(req.params.id) } });
         res.json({ success: true });
-    } catch (error) { res.status(500).json({ error: "Delete failed" }); }
+    } catch (error) {
+        res.status(500).json({ error: "Delete failed" });
+    }
 });
 
 app.get('/api/my-properties', requireAuth, async (req, res) => {

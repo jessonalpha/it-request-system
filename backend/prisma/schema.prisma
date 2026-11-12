@@ -113,6 +113,7 @@ model Property {
   projects       Project[] 
   checklists    ChecklistTemplate[]
   amcs        AMC_Contract[]
+  resources      Resource[]
 }
 
 model Notification {
@@ -259,15 +260,19 @@ model ChecklistLog {
 // RESOURCE HUB MODEL
 // ==========================================
 model Resource {
-  id          Int      @id @default(autoincrement())
-  title       String
-  description String?
-  category    String   // e.g., 'SOPs', 'Brand_Assets', 'Software', 'Forms'
-  fileUrl     String
-  fileName    String
+  id           Int       @id @default(autoincrement())
+  title        String
+  description  String?
+  category     String    // e.g., 'SOPs', 'Brand_Assets', 'Software', 'Forms'
+  fileUrl      String
+  fileName     String
   
   uploadedById Int
-  uploadedBy  User     @relation(fields: [uploadedById], references: [id])
+  uploadedBy   User      @relation(fields: [uploadedById], references: [id])
   
-  createdAt   DateTime @default(now())
+  // NEW: Optional link to a specific hotel (null = Global / All Properties)
+  propertyId   Int?
+  property     Property? @relation(fields: [propertyId], references: [id])
+  
+  createdAt    DateTime  @default(now())
 }
