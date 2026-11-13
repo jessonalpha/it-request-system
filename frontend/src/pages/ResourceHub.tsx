@@ -674,17 +674,17 @@ export default function ResourceHub() {
               <div className="rounded-2xl overflow-hidden border border-slate-200 bg-slate-900/5 flex items-center justify-center">
                 {getPreviewType(previewResource.fileUrl) === "image" ? (
                   <img 
-                    src={previewResource.fileUrl} 
-                    alt={previewResource.title} 
-                    className="max-h-[55vh] w-auto object-contain mx-auto p-2" 
+                  src={`http://localhost:5000${previewResource.fileUrl}`} 
+                  alt={previewResource.title} 
+                  className="max-h-[55vh] w-auto object-contain mx-auto p-2" 
                   />
                 ) : getPreviewType(previewResource.fileUrl) === "pdf" ? (
-                  <iframe 
-                    src={previewResource.fileUrl} 
-                    title={previewResource.title} 
-                    className="w-full h-[60vh] bg-white border-0" 
-                  />
-                ) : (
+                <iframe 
+                src={`http://localhost:5000${previewResource.fileUrl}`} 
+                title={previewResource.title} 
+                className="w-full h-[60vh] bg-white border-0" 
+                />
+              ) : (
                   <div className="py-12 px-6 text-center">
                     {React.createElement(getFileIcon(previewResource.fileUrl).icon, { className: "w-12 h-12 text-slate-400 mx-auto mb-3" })}
                     <p className="text-sm font-semibold text-slate-700">{previewResource.fileName}</p>
@@ -714,11 +714,9 @@ export default function ResourceHub() {
 
               <div className="flex flex-wrap sm:flex-nowrap gap-3 pt-1">
                 <a 
-                  href={previewResource.fileUrl} 
-                  download 
-                  target="_blank" 
-                  rel="noreferrer"
-                  className="flex-1 min-w-[140px]"
+                href={`http://localhost:5000${previewResource.fileUrl}`} 
+                target="_blank" 
+                rel="noreferrer"
                 >
                   <Button className="w-full bg-indigo-600 hover:bg-indigo-700 text-white h-11 rounded-2xl font-bold shadow-lg shadow-indigo-600/20">
                     <Download className="w-4 h-4 mr-2" /> Download
@@ -745,24 +743,13 @@ export default function ResourceHub() {
                 </Button>
 
                 {isAdmin && (
-                  <>
-                    <Button 
-                      variant="outline" 
-                      onClick={() => openEditModal(previewResource)} 
-                      className="h-11 rounded-2xl border-slate-200 text-slate-700 hover:bg-slate-50 font-semibold"
-                      title="Edit Resource"
-                    >
-                      <Pencil className="w-4 h-4 mr-1.5" /> Edit
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      onClick={() => handleDelete(previewResource.id)} 
-                      className="h-11 rounded-2xl border-red-200 text-red-600 hover:bg-red-50"
-                      title="Delete Resource"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => handleDelete(previewResource.id)} 
+                    className="h-11 rounded-2xl border-red-200 text-red-600 hover:bg-red-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
                 )}
               </div>
             </div>
